@@ -28,10 +28,16 @@ sealed trait Stream[+A] {
 
   import Stream._
 
-  def take(n: Int): Stream[A] = this match {
-    case Cons(h, t) if n > 1 => cons(h(), t().take(n - 1))
+  def takeRecursive(n: Int): Stream[A] = this match {
+    case Cons(h, t) if n > 1 => cons(h(), t().takeRecursive(n - 1))
     case Cons(h, _) if n == 1 => cons(h(), empty)
     case _ => empty
+  }
+
+  def take(n: Int): Stream[A] = unfold(this, n){
+    case (Cons(h, t), x) if x > 0 => Some(h(), (t(), x-1))
+    case (Cons(h, _), 1) => Some(h(), (empty, 0))
+    case _ => None
   }
 
   @tailrec
@@ -45,9 +51,12 @@ sealed trait Stream[+A] {
     case _ => empty
   }
 
-  def takeWhile(p: A => Boolean): Stream[A] = foldRight(empty[A])((h, t) => if(p(h)) cons(h, t) else empty)
+  def takeWhileFold(p: A => Boolean): Stream[A] = foldRight(empty[A])((h, t) => if(p(h)) cons(h, t) else empty)
 
-
+  def takeWhile(p: A => Boolean): Stream[A] = unfold(this){
+    case Cons(h, t) if p(h()) => Some(h(), t())
+    case _ => None
+  }
 
   def exists(p: A => Boolean): Boolean = this match {
     case Cons(h, t) => p(h()) || t().exists(p)
@@ -63,7 +72,12 @@ sealed trait Stream[+A] {
 
   def forAll(p: A => Boolean): Boolean = foldRight(true)(p(_) && _)
 
-  def map[B](f: A => B): Stream[B] = foldRight(empty[B])((h, t) => cons(f(h), t))
+  def mapFold[B](f: A => B): Stream[B] = foldRight(empty[B])((h, t) => cons(f(h), t))
+
+  def map[B](f: A => B): Stream[B] = unfold(this){
+    case Cons(h, t) => Some(f(h()), t())
+    case _ => None
+  }
 
   def filter(p: A => Boolean): Stream[A] = foldRight(empty[A])((h, t) =>  if(p(h)) cons(h, t) else t)
 
@@ -72,6 +86,25 @@ sealed trait Stream[+A] {
   def append[B >: A](that: => Stream[B]): Stream[B] = foldRight(that)((h, t) => cons(h, t))
 
   def find(p: A => Boolean): Option[A] = filter(p).headOption
+
+  def zipWith[B, C](that: Stream[B])(f: (A, B) => C): Stream[C] = unfold((this, that)){
+    case (Cons(hThis, tThis), Cons(hThat, tThat)) => Some(f(hThis(), hThat()), (tThis(), tThat()))
+    case _ => None
+  }
+
+  def zip[B](that: Stream[B]): Stream[(A, B)] = zipWith(that)((_ , _))
+
+  def zipWithAll[B, C](that: Stream[B])(f: (Option[A], Option[B]) => C): Stream[C] = unfold(this, that){
+    case (Cons(h1, t1), Cons(h2, t2)) => Some(f(Some(h1()), Some(h2())), (t1(), t2()))
+    case (Cons(h, t), Empty) => Some(f(Some(h()), None), (t(), empty))
+    case (Empty, Cons(h, t)) => Some(f(None, Some(h())), (empty, t()))
+    case _ => None
+  }
+
+  def zipAll[B](that: Stream[B]): Stream[(Option[A], Option[B])] = zipWithAll(that)((_ , _))
+
+  def startsWith[B >: A](s: Stream[B]): Boolean = zipAll(s).takeWhile(_._2.isDefined).forAll {case (h1, h2) => h1 == h2}
+
 }
 
 
