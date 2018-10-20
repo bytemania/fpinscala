@@ -105,6 +105,19 @@ sealed trait Stream[+A] {
 
   def startsWith[B >: A](s: Stream[B]): Boolean = zipAll(s).takeWhile(_._2.isDefined).forAll {case (h1, h2) => h1 == h2}
 
+  def tails: Stream[Stream[A]] = unfold(this){
+    case Cons(h, t) => Some(cons(h(), t()), t())
+    case _ => None
+  } append empty
+
+  def hasSubSequence[B >: A](s: Stream[B]): Boolean = tails exists (_ startsWith s)
+
+  def scanRight[B](z: B)(f: (A, =>B) => B): Stream[B] = foldRight((z, Stream(z)))((a, p0) => {
+    lazy val p1 = p0
+    val b2 = f(a, p1._1)
+    (b2, cons(b2, p1._2))
+  })._2
+
 }
 
 
@@ -180,5 +193,7 @@ object MainStream extends App {
   println("ones.map: " + ones.map(_ + 1).exists(_ % 2 == 0))
   println("takeWhile: " + ones.takeWhile(_ == 1))
   println("ones:" + ones.forAll(_ != 1))
+
+
 
 }
