@@ -167,7 +167,7 @@ object MainState extends App {
 
   import RNG._
 
-  println(sequence(List(unit(1), unit(2), unit(3)))(Simple(42))._1 + " == " +  List(1, 2, 3))
+  println(sequence(List(unit(1), unit(2), unit(3)))(Simple(42))._1 + " == " + List(1, 2, 3))
 
   def update = (i: Input) => (s: Machine) => (i, s) match {
     case (_, Machine(_, 0, _)) => s
@@ -180,7 +180,7 @@ object MainState extends App {
   import State._
 
   def simulateMachine(inputs: List[Input]): State[Machine, (Int, Int)] = for {
-    _ <- sequence(inputs map (modify[Machine] _ compose update))
+    _ <- State.sequence(inputs map (modify[Machine] _ compose update))
     s <- get
   } yield (s.coins, s.candies)
 
