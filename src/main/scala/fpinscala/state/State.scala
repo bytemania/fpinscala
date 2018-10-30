@@ -112,6 +112,8 @@ object RNG {
     val mod = i % n
     if (i + (n - 1) - mod >= 0) unit(mod) else nonNegativeLessThan(n)
   })
+
+  def boolean(rng: RNG): (Boolean, RNG) = rng.nextInt match {case (i, r) => (i % 2 == 0, r)}
 }
 
 case class State[S, +A](run: S => (A, S)) {
