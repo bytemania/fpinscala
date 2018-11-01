@@ -1,8 +1,11 @@
 package fpinscala.testing
 
+import java.util.concurrent.{ExecutorService, Executors}
+
 import fpinscala.state.{RNG, State}
 import fpinscala.testing.Prop._
 import fpinscala.laziness.Stream
+import fpinscala.parallelism.Par
 
 case class Prop(run: (MaxSize, TestCases, RNG) => Result) {
   def &&(p: Prop): Prop = Prop {
@@ -45,6 +48,12 @@ object Prop {
     override def isFalsified: Boolean = true
   }
 
+  case object Proved extends Result {
+    override def isFalsified: Boolean = false
+  }
+
+  def check(p: => Boolean): Prop = Prop {(_, _, _) => if (p) Passed else Falsified("", 0)}
+
   def forAll[A](as: Gen[A])(f: A => Boolean): Prop = Prop {
     (_, n,rng) => randomStream(as)(rng).zip(Stream.from(0)).take(n).map {
       case (a, i) => try {
@@ -70,7 +79,16 @@ object Prop {
     s"generated an exception: ${e.getMessage}\n" +
     s"stack trace:\n ${e.getStackTrace.mkString("\n")}"
 
-
+  def run(p: Prop,
+          maxSize: MaxSize = 100,
+         testCases: TestCases = 100,
+         rng: RNG = RNG.Simple(System.currentTimeMillis)): Unit = {
+    p.run(maxSize, testCases, rng) match {
+      case Falsified(msg, n) => println(s"! Falsified after $n passed tests:\n $msg")
+      case Passed => println(s"+ OK, passed $testCases tests.")
+      case Proved => println(s"+ OK, proved property.")
+    }
+  }
 }
 
 case class Gen[+A](sample: State[RNG, A]) {
@@ -108,6 +126,10 @@ object Gen {
 
     Gen(State(RNG.double).flatMap(d => if (d < g1Threshold) g1._1.sample else g2._1.sample))
   }
+
+  def listOf1[A](g: Gen[A]): SGen[List[A]] = SGen(n => g.listOfN(n max 1))
+
+  def listOf[A](g: Gen[A]): SGen[List[A]] = SGen(n => g.listOfN(n))
 }
 
 case class SGen[+A](g: Int => Gen[A]) {
@@ -121,7 +143,27 @@ case class SGen[+A](g: Int => Gen[A]) {
 
   def **[B](sg: SGen[B]): SGen[(A, B)] = SGen(n => apply(n) ** sg(n))
 
-  def listOf[A](g: Gen[A]): SGen[List[A]] = SGen(n => g.listOfN(n))
+  def listOf[B >: A](g: Gen[B]): SGen[List[B]] = SGen(n => g.listOfN(n))
 }
 
+object GenApp extends App {
+
+  val smallInt: Gen[TestCases] = Gen.choose(-10,10)
+
+  val maxProp1 = forAll(Gen.listOf1(smallInt)) { l =>
+    val max = l.max
+    !l.exists(_ > max) // No value greater than `max` should exist in `l`
+  }
+
+  val sortedProp = forAll(Gen.listOf(smallInt)) {ns =>
+    val nss = ns.sorted
+    (nss.isEmpty || nss.tail.isEmpty || !nss.zip(nss.tail).exists {case (a, b) => a > b}) &&
+    ns.forall(nss.contains) &&
+    nss.forall(ns.contains)
+  }
+
+  val ES: ExecutorService = Executors.newCachedThreadPool
+  val p1 = Prop.forAll(Gen.unit(Par.unit(1)))(i => Par.map(i)(_ + 1)(ES).get == Par.unit(2)(ES).get)
+
+}
 
