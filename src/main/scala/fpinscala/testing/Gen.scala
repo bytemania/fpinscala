@@ -6,6 +6,9 @@ import fpinscala.state.{RNG, State}
 import fpinscala.testing.Prop._
 import fpinscala.laziness.Stream
 import fpinscala.parallelism.Par
+import fpinscala.parallelism.Par.Par
+
+import scala.language.postfixOps
 
 case class Prop(run: (MaxSize, TestCases, RNG) => Result) {
   def &&(p: Prop): Prop = Prop {
@@ -54,6 +57,32 @@ object Prop {
 
   def check(p: => Boolean): Prop = Prop {(_, _, _) => if (p) Passed else Falsified("", 0)}
 
+  val ES: ExecutorService = Executors.newCachedThreadPool
+  val p1: Prop = Prop.forAll(Gen.unit(Par.unit(1)))(i =>
+    Par.map(i)(_ + 1)(ES).get == Par.unit(2)(ES).get)
+
+  val p2: Prop = check {
+    val p = Par.map(Par.unit(1))(_ + 1)
+    val p2 = Par.unit(2)
+    p(ES).get == p2(ES).get
+  }
+
+  def equal[A](p: Par[A], p2: Par[A]): Par[Boolean] =
+    Par.map2(p,p2)(_ == _)
+
+  val p3: Prop = check {
+    equal (
+      Par.map(Par.unit(1))(_ + 1),
+      Par.unit(2)
+    ) (ES) get
+  }
+
+  import Gen._
+
+  val S: Gen[ExecutorService] = weighted(
+    choose(1,4).map(Executors.newFixedThreadPool) -> .75,
+    unit(Executors.newCachedThreadPool) -> .25)
+
   def forAll[A](as: Gen[A])(f: A => Boolean): Prop = Prop {
     (_, n,rng) => randomStream(as)(rng).zip(Stream.from(0)).take(n).map {
       case (a, i) => try {
@@ -68,9 +97,16 @@ object Prop {
     (max,n,rng) =>
       val casesPerSize = (n - 1) / max + 1
       val props: Stream[Prop] = Stream.from(0).take((n min max) + 1).map(i => forAll(g(i))(f))
-      val prop: Prop = props.map(p => Prop { (max, n, rng) => p.run(max, casesPerSize, rng) }).toList.reduce(_ && _)
+      val prop: Prop = props.map(p => Prop { (max, _, rng) => p.run(max, casesPerSize, rng) }).toList.reduce(_ && _)
       prop.run(max,n,rng)
   }
+
+  def forAllPar[A](g: Gen[A])(f: A => Par[Boolean]): Prop = forAll(S.map2(g)((_, _))){case (s, a) => f(a)(s).get}
+
+  def forAllPar2[A](g: Gen[A])(f: A => Par[Boolean]): Prop = forAll(S ** g){case (s, a) => f(a)(s).get}
+
+  def forAllPar3[A](g: Gen[A])(f: A => Par[Boolean]): Prop = forAll(S ** g){case s ** a => f(a)(s).get}
+
 
   private def randomStream[A](g: Gen[A])(rng: RNG): Stream[A] = Stream.unfold(rng)(rng => Some(g.sample.run(rng)))
 
@@ -89,6 +125,25 @@ object Prop {
       case Proved => println(s"+ OK, proved property.")
     }
   }
+
+  def checkPar(p: Par[Boolean]): Prop = forAllPar(Gen.unit(()))(_ => p)
+
+  val pint: Gen[Par[TestCases]] = Gen.choose(0, 10) map (Par.unit(_))
+
+  val p4: Prop = forAllPar(pint)(n => equal(Par.map(n)(y => y), n))
+
+  val pint2: Gen[Par[Int]] = choose(-100, 100).listOfN(choose(0, 20))
+    .map(l => l.foldLeft(Par.unit(0))((p, i) => Par.fork {Par.map2(p, Par.unit(i))(_ + _)}))
+
+  val forkProp: Prop = forAllPar(pint2)(i => equal(Par.fork(i), i)) tag "fork"
+
+  val isEven: TestCases => Boolean = (i: Int) => i % 2 == 0
+
+  def genStringIntFn(g: Gen[Int]): Gen[String => Int] = g map (i => s => i)
+}
+
+object ** {
+  def unapply[A,B](p: (A,B)) = Some(p)
 }
 
 case class Gen[+A](sample: State[RNG, A]) {
@@ -121,7 +176,7 @@ object Gen {
 
   def union[A](g1: Gen[A], g2: Gen[A]): Gen[A] = boolean flatMap (if (_) g1 else g2)
 
-  def weigthted[A](g1: (Gen[A], Double), g2: (Gen[A], Double)): Gen[A] = {
+  def weighted[A](g1: (Gen[A], Double), g2: (Gen[A], Double)): Gen[A] = {
     val g1Threshold = g1._2.abs / (g1._2.abs + g2._2.abs)
 
     Gen(State(RNG.double).flatMap(d => if (d < g1Threshold) g1._1.sample else g2._1.sample))
@@ -161,9 +216,6 @@ object GenApp extends App {
     ns.forall(nss.contains) &&
     nss.forall(ns.contains)
   }
-
-  val ES: ExecutorService = Executors.newCachedThreadPool
-  val p1 = Prop.forAll(Gen.unit(Par.unit(1)))(i => Par.map(i)(_ + 1)(ES).get == Par.unit(2)(ES).get)
 
 }
 
