@@ -96,7 +96,8 @@ sealed abstract class STArray[S, A](implicit manifest: Manifest[A]) {
 
   def freeze: ST[S, List[A]] = ST(value.toList)
 
-  def fill(xs: Map[Int, A]): ST[S, Unit] = ???
+  def fill(xs: Map[Int, A]): ST[S, Unit] = xs.foldRight(ST[S, Unit](())) {case ((k, v), st) =>
+    st flatMap(_ => write(k, v))}
 
   def swap(i: Int, j: Int): ST[S, Unit] = for {
     x <- read(i)
