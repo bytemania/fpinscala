@@ -158,10 +158,11 @@ object Immutable {
 }
 
 
+import scala.collection.mutable
 import scala.collection.mutable.HashMap
 
 sealed trait STMap[S,K,V] {
-  protected def table: HashMap[K,V]
+  protected def table: mutable.HashMap[K,V]
 
   def size: ST[S,Int] = ST(table.size)
 
@@ -176,10 +177,10 @@ sealed trait STMap[S,K,V] {
 
 object STMap {
   def empty[S,K,V]: ST[S, STMap[S,K,V]] = ST(new STMap[S,K,V] {
-    val table = HashMap.empty[K,V]
+    val table = mutable.HashMap.empty[K,V]
   })
 
   def fromMap[S,K,V](m: Map[K,V]): ST[S, STMap[S,K,V]] = ST(new STMap[S,K,V] {
-    val table: HashMap[K, V] = (HashMap.newBuilder[K,V] ++= m).result
+    val table: mutable.HashMap[K, V] = (mutable.HashMap.newBuilder[K,V] ++= m).result
   })
 }
